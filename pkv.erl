@@ -93,9 +93,8 @@ server_loop({Dict, Proposals}) ->
 			% This round of Paxos has chosen a value! We can finally update the local state and reset the proposals.
 			Dict2 = dict:store(NewKey, NewValue, Dict),
 			{Dict2, []};
-		% {set_state, MandatedValue, MandadedProposals} ->
-		% 	% For testing and debugging, this allows us to manually adjust a server's state.
-		% 	{MandatedValue, MandadedProposals};
+		{set_proposal, Proposal} -> % This is just for testing. We can fudge an existing proposal to make sure everything works as expected.
+			{Dict, [Proposal|Proposals]};
 		{stop} -> ok;
 		AnythingElse -> log("Unhandled message", [AnythingElse])
 	end,
@@ -339,3 +338,16 @@ highest_proposal_test() ->
 	Proposals = [{R1, a}, {R2, b}, {R3, c}],
 	?assertEqual({0, nothing}, highest_proposal([])),
 	?assertEqual({R3, c}, highest_proposal(Proposals)).
+
+% If a prepare response contains a value from a previous promise, make sure that the write value gets upated.
+% In our case, the proposed value gets lost, but in a robust system the proposer would queue it up for a later
+% attempt. See section "DUELING PROPOSALS" at http://harry.me/blog/2014/12/27/neat-algorithms-paxos/
+simulate_stale_proposal_test() ->	
+	start(),
+	%Forcibly create a proposal on one server (as though it had already made a promise)	
+	[S|_] = get_servers(),
+	S ! {set_proposal, {make_ref(), "Updated value!"}},
+	K1 = write("Original value!"),
+	timer:sleep(50), % Wait for the paxos round to complete...
+	?assertEqual({"Updated value!", 3}, read(K1)),
+	stop().
