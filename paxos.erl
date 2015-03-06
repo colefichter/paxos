@@ -3,14 +3,16 @@
 -compile([export_all]).
 
 
-run() ->
+start() ->
 	_RootPid = init_root(),
-	create_server(),
-	create_server(),
-	create_server(),
-	ok.	
+	[create_server() || _ <- lists:seq(1,3)],
+	io:format("~n*** Running with 3 servers.~n~n"),
+	read(),
+	% For unit tests... pause the test thread for a moment to allow message passing to complete.
+	timer:sleep(100).
 
-
+stop() ->
+	{stop} = root ! {stop}.
 
 %---------------------------------------------------------------------------------------------
 % The API for Paxos Clients to communicate with the servers
@@ -69,12 +71,12 @@ server_loop({CurrentValue, Proposals}) ->
 			case AcceptSeq >= HighestSeq of 
 				true ->					
 					% This is the most recent proposal, so we're all good to accept it.
-					log("Accept acked."),
+					log("  Accept acked."),
 					From ! {accept_ack, AcceptSeq, accept},
 					{CurrentValue, Proposals};
 				false ->
 					% We've already issued a promise to a proposal with a higher value than this one! Ignore.
-					log("Accept rejected."),
+					log("  Accept rejected."),
 					From ! {accept_ack, AcceptSeq, reject},
 					{CurrentValue, Proposals}
 			end;
@@ -82,7 +84,11 @@ server_loop({CurrentValue, Proposals}) ->
 			log("Decision made!", [NewValue]),
 			% This round of Paxos has chosen a value! We can finally update the local state and reset the proposals.
 			{NewValue, []};
-		{stop} -> ok
+		{set_state, MandatedValue, MandadedProposals} ->
+			% For testing and debugging, this allows us to manually adjust a server's state.
+			{MandatedValue, MandadedProposals};
+		{stop} -> ok;
+		AnythingElse -> log("Unhandled message", [AnythingElse])
 	end,
 	server_loop(NewState).
 
@@ -91,6 +97,7 @@ handle_write_request(WriteValue) ->
 	% Step 1 in Paxos: The server that handles the client's write request begins a proposal to the other servers.
 	{Seq, NumMessages} = send_prepare(WriteValue),
 	Replies = collect_replies(NumMessages, Seq),
+	log("Write request received replies", [Replies]),
 	% Did we get enough replies? (Only the positive ones are collected)
 	% Normal majority = (N/2) + 1. But this current server counts as 1 (and was not messaged), so we only need N/2 or more:
 	case length(Replies) >= ((NumMessages+1) div 2) of
@@ -114,6 +121,7 @@ handle_write_request(WriteValue) ->
 handle_accept_phase(Seq, Value) ->
 	N = send_accept(Seq, Value),
 	Replies = collect_replies(N, Seq),
+	log("Accept reqeust received replies", [Replies]),
 	case length(Replies) >= ((N+1) div 2) of
 		true -> 
 			% We have consensus! Decision is final. Update all servers (including myself, because it's easier than trying to return the new value)
@@ -172,13 +180,13 @@ init_root() ->
 root_loop(Servers) ->
 	receive 
 		{create_server} ->
-			NewServer = spawn(?MODULE, server_loop, [[]]),
+			NewServer = spawn_link(?MODULE, server_loop, [[]]),
 			root_loop([NewServer|Servers]);
 		{get_servers, From} ->
 			From ! {servers, Servers},
 			root_loop(Servers);
 		{stop} ->
-			ok
+			exit(shutdown) % This will shutdown the servers too.
 	end.
 
 %---------------------------------------------------------------------------------------------
@@ -269,6 +277,14 @@ log(ProcessType, Message, Args) ->
 % Unit tests
 %---------------------------------------------------------------------------------------------
 -include_lib("eunit/include/eunit.hrl").
+
+all_test() ->
+	start(),
+	?assertEqual({nothing, 3}, read()), %Initial value
+	write(testing_testing),
+	timer:sleep(50), % Wait for the paxos round to complete...
+	?assertEqual({testing_testing, 3}, read()),
+	stop().
 
 init_root_test() ->
 	Pid = init_root(),
