@@ -2,6 +2,9 @@
 
 -compile([export_all]).
 
+%% This version creates multiple process which each replicate a single erlang term. The paxos consensus
+%% algorithm is used to agree on writes/updates to the current value.
+%% See pkv.erl for a hash table version.
 
 start() ->
 	_RootPid = init_root(),
