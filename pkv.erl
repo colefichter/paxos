@@ -2,6 +2,9 @@
 
 -compile([export_all]).
 
+%% This version creates multiple process which each replicate a hash table. The paxos consensus
+%% algorithm is used to agree on writes to the hash table.
+%% See paxos.erl for a simpler version that replicates only a single erlang term.
 
 start() ->
 	_RootPid = init_root(),
