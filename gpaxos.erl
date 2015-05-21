@@ -45,7 +45,7 @@ handle_call({write, Value}, _From, Servers) ->
 
 handle_cast(create_server, Servers) ->
     log("Adding server. Total count:", [length(Servers)+1]),
-    NewServerPid = gpaxos:start_link(),
+    NewServerPid = gpaxos_server:start_link(),
     {noreply, [NewServerPid|Servers]};
 handle_cast(stop, State) -> {stop, normal, State}.
 
